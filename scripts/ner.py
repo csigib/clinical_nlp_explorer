@@ -85,8 +85,6 @@ def _dedupe_entities(entities_df: pd.DataFrame) -> pd.DataFrame:
     entities_df = entities_df.drop_duplicates(subset=key_cols).reset_index(drop=True)
     return entities_df
 
-
-@st.cache_data(ttl=3600, show_spinner=False)
 def run_ner_on_trials(
     trials_df: pd.DataFrame,
     text_col: str = "text_used_trunc",
@@ -120,4 +118,5 @@ def run_ner_on_trials(
         entities_df = entities_df[entities_df["entity_norm"].str.len() >= 2].reset_index(drop=True)
 
     entities_df = _dedupe_entities(entities_df)
+
     return entities_df
