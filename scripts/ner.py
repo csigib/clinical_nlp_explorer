@@ -33,8 +33,6 @@ def _map_label_group(label: str) -> str:
 
     return label_u or "ENTITY"
 
-
-@st.cache_resource
 def _load_spacy_models():
    
     nlp_bc5cdr = spacy.load("en_ner_bc5cdr_md", exclude=["tagger", "parser", "lemmatizer", "attribute_ruler"])
@@ -120,3 +118,4 @@ def run_ner_on_trials(
     entities_df = _dedupe_entities(entities_df)
 
     return entities_df
+
