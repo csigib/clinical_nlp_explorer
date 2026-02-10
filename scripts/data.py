@@ -24,8 +24,6 @@ def _safe_list(x) -> List[str]:
 def _stable_hash(text: str) -> str:
     return hashlib.md5(text.encode("utf-8", errors="ignore")).hexdigest()  # nosec B303
 
-
-@st.cache_data(ttl=3600)
 def fetch_trials_cached(query: str, max_results: int) -> pd.DataFrame:
     return get_clinical_trials_nlp(query_cond=query, page_size=max_results)
 
@@ -62,11 +60,9 @@ def normalize_trials_df(df: pd.DataFrame, include_detailed: bool) -> pd.DataFram
         if c not in df2.columns:
             df2[c] = None
 
-    # Ensure list-typed columns
     df2["conditions"] = df2["conditions"].apply(_safe_list)
     df2["interventions"] = df2["interventions"].apply(_safe_list)
 
-    # Ensure text columns are strings
     df2["brief_summary"] = df2["brief_summary"].fillna("").astype(str)
     df2["detailed_description"] = df2["detailed_description"].fillna("").astype(str)
 
@@ -79,5 +75,6 @@ def normalize_trials_df(df: pd.DataFrame, include_detailed: bool) -> pd.DataFram
 
     df2["text_used_trunc"] = df2["text_used"].astype(str).str.slice(0, MAX_TEXT_CHARS)
     df2["text_hash"] = df2["text_used_trunc"].astype(str).map(_stable_hash)
+
 
     return df2
