@@ -11,6 +11,32 @@ from scripts.data import fetch_trials_cached, normalize_trials_df
 from scripts.entity_explorer import build_cooccurrence_long, per_trial_entity_table
 from scripts.ner import run_ner_on_trials
 
+import json
+
+
+def _stringify_list_dict_cells(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Some trial fields can be lists/dicts (object dtype). If any Streamlit cache hashing
+    touches a DataFrame containing list/dict cells, it can crash with:
+    TypeError: unhashable type: 'list'
+    Convert list/dict cells to JSON strings to make the DataFrame safe.
+    """
+    if df is None or df.empty:
+        return df
+
+    out = df.copy()
+    for c in out.columns:
+        if out[c].dtype != "object":
+            continue
+        s = out[c].dropna()
+        if s.empty:
+            continue
+        if s.map(lambda x: isinstance(x, (list, dict))).any():
+            out[c] = out[c].map(
+                lambda x: json.dumps(x, ensure_ascii=False) if isinstance(x, (list, dict)) else x
+            )
+    return out
+
 APP_TITLE = "Clinical Trials NLP Explorer"
 
 DEFAULT_QUERY = "diabetes"
@@ -56,6 +82,7 @@ if fetch_btn:
         t0 = time.perf_counter()
         df_raw = fetch_trials_cached(query=query, max_results=max_results)
         df_trials = normalize_trials_df(df_raw, include_detailed=True)
+        df_trials = _stringify_list_dict_cells(df_trials)
         fetch_s = time.perf_counter() - t0
 
         st.session_state["trials_df"] = df_trials
@@ -361,4 +388,5 @@ with tab_export:
 
     st.download_button("Download trials (CSV)", df_trials.to_csv(index=False), file_name="trials.csv")
     if entities_df is not None and not entities_df.empty:
+
         st.download_button("Download entities (CSV)", entities_df.to_csv(index=False), file_name="entities.csv")
