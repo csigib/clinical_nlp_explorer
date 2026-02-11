@@ -88,7 +88,7 @@ def run_ner_on_trials(
     text_hash_col: str = "text_hash",
 ) -> pd.DataFrame:
     """
-    Community Cloud-friendly approach:
+    In order to run the live demo on Streamlit Cloud:
     - Load BC5CDR, run it, then delete it + gc.
     - Load JNLPBA, run it, then delete it + gc.
     This keeps peak memory lower by not holding both models simultaneously.
@@ -98,7 +98,6 @@ def run_ner_on_trials(
 
     records: List[dict] = []
 
-    # Pass 1: BC5CDR
     nlp_bc5cdr = spacy.load(
         "en_ner_bc5cdr_md",
         exclude=["tagger", "parser", "lemmatizer", "attribute_ruler"],
@@ -120,7 +119,6 @@ def run_ner_on_trials(
         del nlp_bc5cdr
         gc.collect()
 
-    # Pass 2: JNLPBA
     nlp_jnlpba = spacy.load(
         "en_ner_jnlpba_md",
         exclude=["tagger", "parser", "lemmatizer", "attribute_ruler"],
@@ -147,3 +145,4 @@ def run_ner_on_trials(
         entities_df = entities_df[entities_df["entity_norm"].astype(str).str.len() >= 2].reset_index(drop=True)
 
     return _dedupe_entities(entities_df)
+
