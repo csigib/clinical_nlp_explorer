@@ -14,8 +14,8 @@ from scripts.ner import run_ner_on_trials
 APP_TITLE = "Clinical Trials NLP Explorer"
 
 DEFAULT_QUERY = "diabetes"
-MAX_RESULTS_CAP = 15
-DEFAULT_MAX_RESULTS = 10
+MAX_RESULTS_CAP = 25
+DEFAULT_MAX_RESULTS = 15
 
 SHOW_ENTITY_TAGS = True
 MAX_ANNOTATED_ENTITIES = 200
@@ -362,3 +362,4 @@ with tab_export:
     st.download_button("Download trials (CSV)", df_trials.to_csv(index=False), file_name="trials.csv")
     if entities_df is not None and not entities_df.empty:
         st.download_button("Download entities (CSV)", entities_df.to_csv(index=False), file_name="entities.csv")
+
