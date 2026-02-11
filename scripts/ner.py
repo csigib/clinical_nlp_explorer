@@ -37,12 +37,12 @@ def _load_spacy_models():
    
     nlp_bc5cdr = spacy.load("en_ner_bc5cdr_md", exclude=["tagger", "parser", "lemmatizer", "attribute_ruler"])
     #nlp_jnlpba = spacy.load("en_ner_jnlpba_md", exclude=["tagger", "parser", "lemmatizer", "attribute_ruler"])
-
-    for nlp, name in [(nlp_bc5cdr, "BC5CDR"), (nlp_jnlpba, "JNLPBA")]:
+    nlp_jnlpba = None
+    for nlp, name in [(nlp_bc5cdr, "BC5CDR")]:
         if "ner" not in nlp.pipe_names:
             raise RuntimeError(f"{name} model loaded but has no 'ner' component.")
 
-    return nlp_bc5cdr, None
+    return nlp_bc5cdr, nlp_jnlpba
 
 
 def _doc_entities_to_records(
@@ -121,5 +121,6 @@ def run_ner_on_trials(
     entities_df = _dedupe_entities(entities_df)
 
     return entities_df
+
 
 
