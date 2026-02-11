@@ -36,13 +36,13 @@ def _map_label_group(label: str) -> str:
 def _load_spacy_models():
    
     nlp_bc5cdr = spacy.load("en_ner_bc5cdr_md", exclude=["tagger", "parser", "lemmatizer", "attribute_ruler"])
-    nlp_jnlpba = spacy.load("en_ner_jnlpba_md", exclude=["tagger", "parser", "lemmatizer", "attribute_ruler"])
+    #nlp_jnlpba = spacy.load("en_ner_jnlpba_md", exclude=["tagger", "parser", "lemmatizer", "attribute_ruler"])
 
     for nlp, name in [(nlp_bc5cdr, "BC5CDR"), (nlp_jnlpba, "JNLPBA")]:
         if "ner" not in nlp.pipe_names:
             raise RuntimeError(f"{name} model loaded but has no 'ner' component.")
 
-    return nlp_bc5cdr, nlp_jnlpba
+    return nlp_bc5cdr, None
 
 
 def _doc_entities_to_records(
@@ -105,10 +105,13 @@ def run_ner_on_trials(
             continue
 
         doc1 = nlp_bc5cdr(text)
-        doc2 = nlp_jnlpba(text)
+        if nlp_jnlpba is not None:
+            doc2 = nlp_jnlpba(text)
+            records.extend(_doc_entities_to_records(nct_id=nct_id, doc=doc2, label_source="JNLPBA", text_hash=text_hash))
+
 
         records.extend(_doc_entities_to_records(nct_id=nct_id, doc=doc1, label_source="BC5CDR", text_hash=text_hash))
-        records.extend(_doc_entities_to_records(nct_id=nct_id, doc=doc2, label_source="JNLPBA", text_hash=text_hash))
+        #records.extend(_doc_entities_to_records(nct_id=nct_id, doc=doc2, label_source="JNLPBA", text_hash=text_hash))
 
     entities_df = pd.DataFrame.from_records(records)
 
@@ -118,4 +121,5 @@ def run_ner_on_trials(
     entities_df = _dedupe_entities(entities_df)
 
     return entities_df
+
 
