@@ -6,7 +6,6 @@ from typing import List
 
 import pandas as pd
 import spacy
-import streamlit as st
 
 
 def _norm_entity(s: str) -> str:
@@ -63,17 +62,6 @@ def _dedupe_entities(entities_df: pd.DataFrame) -> pd.DataFrame:
     return entities_df.drop_duplicates(subset=key_cols).reset_index(drop=True)
 
 
-@st.cache_resource
-def _load_bc5cdr():
-    nlp = spacy.load(
-        "en_ner_bc5cdr_md",
-        exclude=["tagger", "parser", "lemmatizer", "attribute_ruler"],
-    )
-    if "ner" not in nlp.pipe_names:
-        raise RuntimeError("BC5CDR model loaded but has no 'ner' component.")
-    return nlp
-
-
 def _run_one_model(
     *,
     trials_df: pd.DataFrame,
@@ -99,24 +87,40 @@ def run_ner_on_trials(
     text_col: str = "text_used_trunc",
     text_hash_col: str = "text_hash",
 ) -> pd.DataFrame:
+    """
+    Community Cloud-friendly approach:
+    - Load BC5CDR, run it, then delete it + gc.
+    - Load JNLPBA, run it, then delete it + gc.
+    This keeps peak memory lower by not holding both models simultaneously.
+    """
     if trials_df is None or trials_df.empty:
         return pd.DataFrame()
 
     records: List[dict] = []
 
-    # Pass 1: BC5CDR (cached, stays loaded)
-    nlp_bc5cdr = _load_bc5cdr()
-    records.extend(
-        _run_one_model(
-            trials_df=trials_df,
-            nlp=nlp_bc5cdr,
-            label_source="BC5CDR",
-            text_col=text_col,
-            text_hash_col=text_hash_col,
-        )
+    # Pass 1: BC5CDR
+    nlp_bc5cdr = spacy.load(
+        "en_ner_bc5cdr_md",
+        exclude=["tagger", "parser", "lemmatizer", "attribute_ruler"],
     )
+    if "ner" not in nlp_bc5cdr.pipe_names:
+        raise RuntimeError("BC5CDR model loaded but has no 'ner' component.")
 
-    # Pass 2: JNLPBA (load only for this run, then free)
+    try:
+        records.extend(
+            _run_one_model(
+                trials_df=trials_df,
+                nlp=nlp_bc5cdr,
+                label_source="BC5CDR",
+                text_col=text_col,
+                text_hash_col=text_hash_col,
+            )
+        )
+    finally:
+        del nlp_bc5cdr
+        gc.collect()
+
+    # Pass 2: JNLPBA
     nlp_jnlpba = spacy.load(
         "en_ner_jnlpba_md",
         exclude=["tagger", "parser", "lemmatizer", "attribute_ruler"],
@@ -135,7 +139,6 @@ def run_ner_on_trials(
             )
         )
     finally:
-        # Encourage memory release on constrained hosts
         del nlp_jnlpba
         gc.collect()
 
