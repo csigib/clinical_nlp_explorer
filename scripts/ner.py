@@ -1,12 +1,12 @@
 from __future__ import annotations
 
+import gc
 import re
-from typing import Dict, List, Optional
+from typing import List
 
 import pandas as pd
-import streamlit as st
-
 import spacy
+import streamlit as st
 
 
 def _norm_entity(s: str) -> str:
@@ -18,7 +18,6 @@ def _norm_entity(s: str) -> str:
 
 
 def _map_label_group(label: str) -> str:
-   
     label_u = (label or "").upper()
 
     # BC5CDR
@@ -33,26 +32,8 @@ def _map_label_group(label: str) -> str:
 
     return label_u or "ENTITY"
 
-@st.cache_resource
-def _load_spacy_models():
-   
-    nlp_bc5cdr = spacy.load("en_ner_bc5cdr_md", exclude=["tagger", "parser", "lemmatizer", "attribute_ruler"])
-    nlp_jnlpba = spacy.load("en_ner_jnlpba_md", exclude=["tagger", "parser", "lemmatizer", "attribute_ruler"])
-    
-    for nlp, name in [(nlp_bc5cdr, "BC5CDR"), (nlp_jnlpba, "JNLPBA")]:
-        if "ner" not in nlp.pipe_names:
-            raise RuntimeError(f"{name} model loaded but has no 'ner' component.")
 
-    return nlp_bc5cdr, nlp_jnlpba
-
-
-def _doc_entities_to_records(
-    *,
-    nct_id: str,
-    doc,
-    label_source: str,
-    text_hash: str,
-) -> List[dict]:
+def _doc_entities_to_records(*, nct_id: str, doc, label_source: str, text_hash: str) -> List[dict]:
     recs: List[dict] = []
     for ent in doc.ents:
         entity_text = ent.text.strip()
@@ -76,53 +57,90 @@ def _doc_entities_to_records(
 
 
 def _dedupe_entities(entities_df: pd.DataFrame) -> pd.DataFrame:
-    
     if entities_df is None or entities_df.empty:
         return entities_df
-
     key_cols = ["nct_id", "start", "end", "label_group", "entity_norm"]
-    entities_df = entities_df.drop_duplicates(subset=key_cols).reset_index(drop=True)
-    return entities_df
+    return entities_df.drop_duplicates(subset=key_cols).reset_index(drop=True)
+
+
+@st.cache_resource
+def _load_bc5cdr():
+    nlp = spacy.load(
+        "en_ner_bc5cdr_md",
+        exclude=["tagger", "parser", "lemmatizer", "attribute_ruler"],
+    )
+    if "ner" not in nlp.pipe_names:
+        raise RuntimeError("BC5CDR model loaded but has no 'ner' component.")
+    return nlp
+
+
+def _run_one_model(
+    *,
+    trials_df: pd.DataFrame,
+    nlp,
+    label_source: str,
+    text_col: str,
+    text_hash_col: str,
+) -> List[dict]:
+    records: List[dict] = []
+    for _, row in trials_df.iterrows():
+        nct_id = str(row.get("nct_id", "") or "")
+        text = str(row.get(text_col, "") or "")
+        text_hash = str(row.get(text_hash_col, "") or "")
+        if not nct_id or not text.strip():
+            continue
+        doc = nlp(text)
+        records.extend(_doc_entities_to_records(nct_id=nct_id, doc=doc, label_source=label_source, text_hash=text_hash))
+    return records
+
 
 def run_ner_on_trials(
     trials_df: pd.DataFrame,
     text_col: str = "text_used_trunc",
     text_hash_col: str = "text_hash",
 ) -> pd.DataFrame:
-    
     if trials_df is None or trials_df.empty:
         return pd.DataFrame()
 
-    nlp_bc5cdr, nlp_jnlpba = _load_spacy_models()
-
     records: List[dict] = []
 
-    for _, row in trials_df.iterrows():
-        nct_id = str(row.get("nct_id", "") or "")
-        text = str(row.get(text_col, "") or "")
-        text_hash = str(row.get(text_hash_col, "") or "")
+    # Pass 1: BC5CDR (cached, stays loaded)
+    nlp_bc5cdr = _load_bc5cdr()
+    records.extend(
+        _run_one_model(
+            trials_df=trials_df,
+            nlp=nlp_bc5cdr,
+            label_source="BC5CDR",
+            text_col=text_col,
+            text_hash_col=text_hash_col,
+        )
+    )
 
-        if not nct_id or not text.strip():
-            continue
+    # Pass 2: JNLPBA (load only for this run, then free)
+    nlp_jnlpba = spacy.load(
+        "en_ner_jnlpba_md",
+        exclude=["tagger", "parser", "lemmatizer", "attribute_ruler"],
+    )
+    if "ner" not in nlp_jnlpba.pipe_names:
+        raise RuntimeError("JNLPBA model loaded but has no 'ner' component.")
 
-        doc1 = nlp_bc5cdr(text)
-        if nlp_jnlpba is not None:
-            doc2 = nlp_jnlpba(text)
-            records.extend(_doc_entities_to_records(nct_id=nct_id, doc=doc2, label_source="JNLPBA", text_hash=text_hash))
-
-
-        records.extend(_doc_entities_to_records(nct_id=nct_id, doc=doc1, label_source="BC5CDR", text_hash=text_hash))
-        #records.extend(_doc_entities_to_records(nct_id=nct_id, doc=doc2, label_source="JNLPBA", text_hash=text_hash))
+    try:
+        records.extend(
+            _run_one_model(
+                trials_df=trials_df,
+                nlp=nlp_jnlpba,
+                label_source="JNLPBA",
+                text_col=text_col,
+                text_hash_col=text_hash_col,
+            )
+        )
+    finally:
+        # Encourage memory release on constrained hosts
+        del nlp_jnlpba
+        gc.collect()
 
     entities_df = pd.DataFrame.from_records(records)
-
     if not entities_df.empty:
-        entities_df = entities_df[entities_df["entity_norm"].str.len() >= 2].reset_index(drop=True)
+        entities_df = entities_df[entities_df["entity_norm"].astype(str).str.len() >= 2].reset_index(drop=True)
 
-    entities_df = _dedupe_entities(entities_df)
-
-    return entities_df
-
-
-
-
+    return _dedupe_entities(entities_df)
